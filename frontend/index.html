@@ -13,55 +13,58 @@
         <p class="subtitle">Upload audio and select a language</p>
       </header>
       <main>
-        <div class="upload-container">
-          <div class="upload-area" id="drop-area">
-            <div class="upload-content">
-              <div class="upload-icon">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-width="1.5"/>
-                  <path d="M8 12L12 8M12 8L16 12M12 8V16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
+        <form id="upload-form" onsubmit="return false;">  <!-- Prevent default form submission -->
+          <div class="upload-container">
+            <div class="upload-area" id="drop-area">
+              <div class="upload-content">
+                <div class="upload-icon">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M8 12L12 8M12 8L16 12M12 8V16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <h3>Drop your audio file here</h3>
+                <p>or</p>
+                <label for="file-upload" class="upload-button">
+                  Select File
+                  <input type="file" id="file-upload" accept="audio/*" hidden />
+                </label>
               </div>
-              <h3>Drop your audio file here</h3>
-              <p>or</p>
-              <label for="file-upload" class="upload-button">
-                Select File
-                <input type="file" id="file-upload" accept="audio/*" hidden />
-              </label>
+            </div>
+            <div class="file-info" id="file-info">
+              <p id="file-name">No file selected</p>
+              <p id="file-size"></p>
             </div>
           </div>
-          <div class="file-info" id="file-info">
-            <p id="file-name">No file selected</p>
-            <p id="file-size"></p>
+          <div class="language-container">
+            <h3>Language</h3>
+            <select id="language-select" class="language-dropdown">
+              <option value="" disabled selected>Choose language</option>
+              <option value="en">English</option>
+              <option value="hi-IN">Hindi</option>
+              <option value="mr-IN">Marathi</option>
+              <option value="gu-IN">Gujarati</option>
+              <option value="ta-IN">Tamil</option>
+              <option value="te-IN">Telugu</option>
+            </select>
           </div>
-        </div>
-        <div class="language-container">
-          <h3>Language</h3>
-          <select id="language-select" class="language-dropdown">
-            <option value="" disabled selected>Choose language</option>
-            <option value="en">English</option>
-            <option value="es">Marathi</option>
-            <option value="fr">Gujarati</option>
-            <option value="de">Tamil</option>
-            <option value="it">Telugu</option>
-          </select>
-        </div>
-        <div class="process-section">
-          <button id="process-button" class="process-button" disabled>
-            Process Audio
-          </button>
-        </div>
+          <div class="process-section">
+            <button type="button" id="process-button" class="process-button" disabled>  <!-- type="button" to prevent form submission -->
+              Process Audio
+            </button>
+          </div>
+        </form>
         <div class="text-output">
           <h3>Transcription</h3>
-          <p id="transcription-text">Your transcription will appear here.</p>
+          <div id="transcription-text" class="output-text">Your transcription will appear here.</div>
         </div>
         <div class="text-output">
           <h3>Follow Up Message Template</h3>
-          <p id="follow-up-text">Your follow-up message will appear here.</p>
+          <div id="follow-up-text" class="output-text">Your translated text will appear here.</div>
         </div>
         <div class="text-output">
           <h3>Insights from the Audio</h3>
-          <p id="insights-text">Insights from the audio will appear here.</p>
+          <div id="insights-text" class="output-text">Additional insights will appear here.</div>
         </div>
       </main>
       <footer>
