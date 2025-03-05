@@ -8,6 +8,50 @@ document.addEventListener("DOMContentLoaded", () => {
   const insightsText = document.getElementById("insights-text");
   const languageSelect = document.getElementById("language-select");
 
+  // Enhanced language detection and mapping
+  const LANGUAGE_NAMES = {
+    'en': 'English',
+    'hi-IN': 'Hindi',
+    'mr-IN': 'Marathi',
+    'gu-IN': 'Gujarati',
+    'ta-IN': 'Tamil',
+    'te-IN': 'Telugu'
+  };
+
+  function getLanguageName(languageCode) {
+    return LANGUAGE_NAMES[languageCode] || 'Unknown Language';
+  }
+
+  // Script detection function
+  function detectScript(text) {
+    if (!text) return 'No text';
+    
+    // Basic script detection based on Unicode ranges
+    const devanagariRange = /[\u0900-\u097F]/;
+    const latinRange = /[A-Za-z]/;
+    const gujaratiRange = /[\u0A80-\u0AFF]/;
+    const tamilRange = /[\u0B80-\u0BFF]/;
+    const teluguRange = /[\u0C00-\u0C7F]/;
+    
+    if (devanagariRange.test(text)) return 'Devanagari (Hindi/Marathi)';
+    if (gujaratiRange.test(text)) return 'Gujarati';
+    if (tamilRange.test(text)) return 'Tamil';
+    if (teluguRange.test(text)) return 'Telugu';
+    if (latinRange.test(text)) return 'Latin (English)';
+    
+    return 'Mixed/Other Script';
+  }
+
+  // Helper function to determine which CSS class to use
+  function getScriptClass(scriptName) {
+    if (scriptName.includes('Devanagari')) return 'hindi-text';
+    if (scriptName.includes('Gujarati')) return 'gujarati-text';
+    if (scriptName.includes('Tamil')) return 'tamil-text';
+    if (scriptName.includes('Telugu')) return 'telugu-text';
+    if (scriptName.includes('Latin')) return 'english-text';
+    return 'generic-text'; // Default fallback
+  }
+
   let selectedFile;
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB max
   const ALLOWED_TYPES = ['audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/mp3']; 
@@ -70,9 +114,13 @@ document.addEventListener("DOMContentLoaded", () => {
       console.log("Sending request to backend...");
       console.log("Selected language:", languageSelect.value);
       
+      // Explicitly set Accept header to expect UTF-8
       const response = await fetch("http://127.0.0.1:8000/process", {
         method: "POST",
         body: formData,
+        headers: {
+          "Accept": "application/json; charset=utf-8"
+        }
       });
 
       console.log("Response status:", response.status);
@@ -82,7 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error(`Server error (${response.status}): ${errorText}`);
       }
 
-      // Get the raw response text for debugging
+      // Use responseText to preserve UTF-8 encoding
       const responseText = await response.text();
       console.log("Response received, length:", responseText.length);
       
@@ -101,35 +149,84 @@ document.addEventListener("DOMContentLoaded", () => {
       // Log the key fields from the response
       console.log("Source language:", result.source_language);
       console.log("Target language:", result.target_language);
-      console.log("Transcription length:", result.transcription ? result.transcription.length : 0);
-      console.log("Translation length:", result.translated_text ? result.translated_text.length : 0);
+      console.log("Transcription sample:", result.transcription?.substring(0, 50) + "...");
+      console.log("Translation sample:", result.translated_text?.substring(0, 50) + "...");
+      console.log("Gemini translation sample:", result.gemini_translation?.substring(0, 50) + "...");
 
-      // Display the transcription text
+      // Display the transcription text with appropriate styling
       if (result.transcription) {
-        transcriptionText.innerHTML = `<div class="hindi-text">${result.transcription}</div>`;
-        console.log("Transcription displayed");
+        const transcriptScript = detectScript(result.transcription);
+        const transcriptClass = getScriptClass(transcriptScript);
+        
+        transcriptionText.innerHTML = `
+          <div class="transcription-section">
+            <h4>Original Transcription (${getLanguageName(result.source_language)})</h4>
+            <div class="${transcriptClass}">${result.transcription}</div>
+          </div>
+        `;
+        console.log(`Transcription displayed with ${transcriptClass} styling`);
       } else {
         transcriptionText.innerHTML = "<div class='error'>No transcription available</div>";
-        console.warn("No transcription in response");
       }
 
-      // Display the translated text
-      if (result.translated_text) {
-        followUpText.innerHTML = `<div class="hindi-text">${result.translated_text}</div>`;
-        console.log("Translation displayed");
+      // Display the translated text with appropriate styling based on the target language
+      if (result.gemini_translation) {
+        const geminiScript = detectScript(result.gemini_translation);
+        const geminiClass = getScriptClass(geminiScript);
+        
+        const sarvamClass = result.translated_text ? 
+          getScriptClass(detectScript(result.translated_text)) : 'generic-text';
+        
+        followUpText.innerHTML = `
+          <div class="translation-container">
+            <div class="translation-section">
+              <h4>Google Gemini Translation (${getLanguageName(result.target_language)})</h4>
+              <div class="${geminiClass}">${result.gemini_translation}</div>
+            </div>
+            ${result.translated_text ? `
+              <div class="translation-section">
+                <h4>Sarvam AI Translation (${getLanguageName(result.target_language)})</h4>
+                <div class="${sarvamClass}">${result.translated_text}</div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+        console.log(`Translations displayed with ${geminiClass} and ${sarvamClass} styling`);
+      } else if (result.translated_text) {
+        const textScript = detectScript(result.translated_text);
+        const textClass = getScriptClass(textScript);
+        
+        followUpText.innerHTML = `
+          <div class="translation-section">
+            <h4>Translation (${getLanguageName(result.target_language)})</h4>
+            <div class="${textClass}">${result.translated_text}</div>
+          </div>
+        `;
+        console.log(`Translation displayed with ${textClass} styling`);
       } else {
         followUpText.innerHTML = "<div class='error'>No translation available</div>";
-        console.warn("No translation in response");
       }
       
-      // Display insights
+      // Enhanced insights section with more detailed language information
       insightsText.innerHTML = `
-        <p><strong>Source Language:</strong> ${result.source_language || 'Unknown'}</p>
-        <p><strong>Target Language:</strong> ${result.target_language || 'Unknown'}</p>
-        <p><strong>Transcription Length:</strong> ${result.transcription ? result.transcription.length : 0} characters</p>
-        <p><strong>Translation Length:</strong> ${result.translated_text ? result.translated_text.length : 0} characters</p>
+        <p><strong>Source Language:</strong> ${getLanguageName(result.source_language)}</p>
+        <p><strong>Target Language:</strong> ${getLanguageName(result.target_language)}</p>
+        <p><strong>Transcription Details:</strong></p>
+        <ul>
+          <li>Characters: ${result.transcription ? result.transcription.length : 0}</li>
+          <li>Script: ${detectScript(result.transcription)}</li>
+        </ul>
+        <p><strong>Translation Details:</strong></p>
+        <ul>
+          <li>Sarvam Characters: ${result.translated_text ? result.translated_text.length : 0}</li>
+          <li>Sarvam Script: ${detectScript(result.translated_text)}</li>
+          ${result.gemini_translation ? `
+            <li>Gemini Characters: ${result.gemini_translation.length}</li>
+            <li>Gemini Script: ${detectScript(result.gemini_translation)}</li>
+          ` : ''}
+        </ul>
       `;
-      console.log("Insights displayed");
+      console.log("Enhanced insights displayed");
     
     } catch (error) {
       console.error("Processing error:", error);
@@ -143,54 +240,137 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
   
-  // Add CSS to properly display Hindi text
-  const style = document.createElement('style');
-  style.textContent = `
-    .hindi-text {
-      font-family: 'Noto Sans Devanagari', 'Arial Unicode MS', Arial, sans-serif;
-      white-space: pre-wrap;
-      word-break: break-word;
-      line-height: 1.5;
-      font-size: 16px;
-      direction: auto;
-      text-align: left;
-    }
-    
-    #transcription-text, #follow-up-text {
-      font-family: 'Noto Sans Devanagari', 'Arial Unicode MS', Arial, sans-serif;
-      white-space: pre-wrap;
-      word-break: break-word;
-      line-height: 1.5;
-      font-size: 16px;
-      direction: ltr;
-      text-align: left;
-    }
-    
-    .text-output {
-      background-color: #f9f9f9;
-      border: 1px solid #ddd;
-      border-radius: 5px;
-      padding: 15px;
-      margin-bottom: 15px;
-    }
-    
-    .loading {
-      color: #2196F3;
-      font-style: italic;
-    }
-    
-    .error {
-      color: #f44336;
-      font-weight: bold;
-    }
-  `;
-  document.head.appendChild(style);
+  // Add CSS to properly display text in various scripts
+  // Add CSS to properly display text in various scripts
+const style = document.createElement('style');
+style.textContent = `
+  /* Base styles for all text */
+  .generic-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+    font-size: 16px;
+    direction: ltr;
+    text-align: left;
+    color: #000; /* Ensure text is black */
+  }
   
-  // Load Noto Sans font
-  const fontLink = document.createElement('link');
-  fontLink.href = 'https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;700&display=swap';
-  fontLink.rel = 'stylesheet';
-  document.head.appendChild(fontLink);
+  /* English text */
+  .english-text {
+    font-family: 'Arial', 'Helvetica', sans-serif;
+    line-height: 1.6;
+    color: #000; /* Ensure text is black */
+  }
+  
+  /* Hindi/Marathi text */
+  .hindi-text {
+    font-family: 'Noto Sans Devanagari', 'Arial Unicode MS', Arial, sans-serif;
+    color: #000; /* Ensure text is black */
+  }
+  
+  /* Gujarati text */
+  .gujarati-text {
+    font-family: 'Noto Sans Gujarati', 'Arial Unicode MS', Arial, sans-serif;
+    color: #000; /* Ensure text is black */
+  }
+  
+  /* Tamil text */
+  .tamil-text {
+    font-family: 'Noto Sans Tamil', 'Arial Unicode MS', Arial, sans-serif;
+    color: #000; /* Ensure text is black */
+  }
+  
+  /* Telugu text */
+  .telugu-text {
+    font-family: 'Noto Sans Telugu', 'Arial Unicode MS', Arial, sans-serif;
+    color: #000; /* Ensure text is black */
+  }
+  
+  /* Common styles for output containers */
+  #transcription-text, #follow-up-text, #insights-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+    font-size: 16px;
+    direction: ltr;
+    text-align: left;
+    color: #000; /* Ensure text is black */
+  }
+  
+  .text-output {
+    background-color: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 15px;
+    overflow-wrap: break-word;
+    color: #000; /* Ensure text is black */
+  }
+  
+  .loading {
+    color: #2196F3;
+    font-style: italic;
+  }
+  
+  .error {
+    color: #f44336;
+    font-weight: bold;
+  }
+  
+  .translation-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  
+  .transcription-section, .translation-section {
+    padding: 15px;
+    border-radius: 5px;
+    background-color: #fff;
+    border: 1px solid #e0e0e0;
+    margin-bottom: 10px;
+    color: #000; /* Ensure text is black */
+  }
+  
+  .transcription-section h4, .translation-section h4 {
+    margin-top: 0;
+    color: #333;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+  
+  /* Ensure all paragraph text is black */
+  p, ul, li {
+    color: #000;
+  }
+  
+  /* Make sure insights text is also black */
+  .insights-transcription {
+    color: #000;
+  }
+`;
+document.head.appendChild(style);
+  
+  // Load fonts for all supported languages
+  function loadFonts() {
+    const fonts = [
+      'Noto+Sans+Devanagari:wght@400;700', // Hindi, Marathi
+      'Noto+Sans+Gujarati:wght@400;700',   // Gujarati
+      'Noto+Sans+Tamil:wght@400;700',      // Tamil
+      'Noto+Sans+Telugu:wght@400;700'      // Telugu
+    ];
+    
+    fonts.forEach(font => {
+      const fontLink = document.createElement('link');
+      fontLink.href = `https://fonts.googleapis.com/css2?family=${font}&display=swap`;
+      fontLink.rel = 'stylesheet';
+      document.head.appendChild(fontLink);
+    });
+  }
+
+  // Call the function to load all required fonts
+  loadFonts();
   
   console.log("Audio processing script loaded successfully");
 });

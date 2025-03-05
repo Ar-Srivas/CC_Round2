@@ -6,6 +6,7 @@ import os
 import json
 import logging
 import io
+import google.generativeai as genai  # Add this import
 
 load_dotenv()
 app = FastAPI()
@@ -14,7 +15,15 @@ app = FastAPI()
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Enable CORS with broader settings to ensure frontend can access
+# Configure Google Gemini
+genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+generation_config = {
+    "temperature": 0.2,
+    "top_p": 0.8,
+    "top_k": 40
+}
+
+# Enable CORS with broader settings
 origins = [
     "http://127.0.0.1:5500",
     "http://localhost:5500",
@@ -35,6 +44,34 @@ def split_text(text, max_length=450):
     for i in range(0, len(text), max_length):
         chunks.append(text[i:i + max_length])
     return chunks
+
+async def translate_with_gemini(text: str, target_language: str) -> str:
+    """Translate text using Google Gemini API"""
+    try:
+        logger.info(f"Translating with Gemini to {target_language}")
+        
+        model = genai.GenerativeModel('gemini-pro', generation_config=generation_config)
+        
+        prompt = f"""
+        Translate the following text to {target_language}. 
+        Keep the original meaning and tone. Preserve any formatting.
+        
+        Text to translate: {text}
+        
+        Translated text:
+        """
+        
+        response = model.generate_content(prompt)
+        
+        # Extract the translated text from the response
+        translated_text = response.text.strip()
+        logger.info(f"Gemini translation completed, length: {len(translated_text)}")
+        
+        return translated_text
+    except Exception as e:
+        logger.error(f"Gemini translation error: {str(e)}")
+        # Return empty string on error, we'll fall back to Sarvam
+        return ""
 
 @app.post("/process")
 async def process(file: UploadFile = File(...), target_language: str = Form(...)):
@@ -57,13 +94,13 @@ async def process(file: UploadFile = File(...), target_language: str = Form(...)
             raise HTTPException(status_code=400, detail="Unsupported file type")
 
         # Sarvam Speech to Text Translate endpoint
-        url = "https://api.sarvam.ai/speech-to-text-translate"
+        url = "https://api.sarvam.ai/speech-to-text"
         
         # Payload configuration
         payload = {
-            'model': 'saaras:v1',
-            'prompt': '',
-            'target_language_code': target_language
+            'model': 'saarika:v2',
+            'language_code': 'unknown',
+            'with_timestamps': 'false'
         }
         
         # Prepare files for upload - ensure we provide file-like object
@@ -75,7 +112,7 @@ async def process(file: UploadFile = File(...), target_language: str = Form(...)
         }
 
         # Make the API call
-        logger.info(f"Sending request to {url}")
+        logger.info(f"Sending speech-to-text request to {url}")
         
         response = requests.post(url, headers=headers, data=payload, files=files)
         
@@ -99,7 +136,7 @@ async def process(file: UploadFile = File(...), target_language: str = Form(...)
             logger.error(f"Raw response text: {response.text}")
             raise HTTPException(
                 status_code=500, 
-                detail="Invalid response from translation service"
+                detail="Invalid response from transcription service"
             )
         
         # Extract transcription details
@@ -107,32 +144,32 @@ async def process(file: UploadFile = File(...), target_language: str = Form(...)
         source_language = response_json.get('language_code', 'unknown')
         
         logger.info(f"Transcription obtained. Source language: {source_language}")
-        logger.debug(f"Full transcription text: {transcription}")
-
-        # If the source language is the same as the target language, no need to translate
-        if source_language == target_language:
-            logger.info("Source language same as target language. No translation needed.")
-            translated_text = transcription
-        else:
-            logger.info(f"Translating from {source_language} to {target_language}")
-            # Split the text into smaller chunks to meet the 500 character limit
+        
+        # If source and target languages differ, translate with both Sarvam and Gemini
+        translated_text = transcription
+        gemini_translation = ""
+        
+        if source_language != target_language:
+            # First try Gemini translation
+            gemini_translation = await translate_with_gemini(transcription, target_language)
+            
+            # Then do Sarvam translation
+            logger.info(f"Translating with Sarvam from {source_language} to {target_language}")
             text_chunks = split_text(transcription)
             translated_chunks = []
             
-            # Translate each chunk
             for i, chunk in enumerate(text_chunks):
                 logger.info(f"Translating chunk {i+1} of {len(text_chunks)}")
-                # Sarvam Text Translation endpoint
                 translation_url = "https://api.sarvam.ai/translate"
                 translation_payload = {
-                    "input_text": chunk,
+                    "input": chunk,
+                    "source_language_code": source_language,  # This line was missing!
                     "target_language_code": target_language,
                     "mode": "formal"
                 }
 
                 translation_response = requests.post(translation_url, headers=headers, json=translation_payload)
                 
-                # Check for successful response
                 if translation_response.status_code != 200:
                     logger.error(f"Translation API returned non-200 status: {translation_response.status_code}")
                     logger.error(f"Translation Response content: {translation_response.text}")
@@ -141,10 +178,8 @@ async def process(file: UploadFile = File(...), target_language: str = Form(...)
                         detail=f"Translation API error: {translation_response.text}"
                     )
 
-                # Parse the translation response
                 try:
                     translation_response_json = translation_response.json()
-                    logger.debug(f"Translation response for chunk {i+1}: {translation_response_json}")
                 except json.JSONDecodeError:
                     logger.error("Failed to decode JSON translation response")
                     logger.error(f"Raw translation response text: {translation_response.text}")
@@ -156,21 +191,20 @@ async def process(file: UploadFile = File(...), target_language: str = Form(...)
                 chunk_translation = translation_response_json.get('translated_text', 'No translation available')
                 translated_chunks.append(chunk_translation)
             
-            # Combine all translated chunks
+            # Combine all translated chunks from Sarvam
             translated_text = ' '.join(translated_chunks)
-            logger.debug(f"Full translated text: {translated_text}")
+            logger.debug(f"Sarvam translation complete, length: {len(translated_text)}")
 
-        # Create the result with both transcription and translation
+        # Create the result with both transcription and translations
         result = {
             "transcription": transcription,
             "translated_text": translated_text,
+            "gemini_translation": gemini_translation,  # Add Gemini translation
             "source_language": source_language,
             "target_language": target_language
         }
 
-        # Final log of the complete result structure
-        logger.info(f"Sending response with transcription and translation")
-        
+        logger.info(f"Sending response with transcription and translations")
         return result
     
     except requests.RequestException as req_error:
